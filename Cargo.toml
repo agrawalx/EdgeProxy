@@ -1,6 +1,9 @@
 [package]
-name = "untitled1"
+name = "Edgeproxy"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+tokio  = { version = "1", features = ["full"] }
+axum = "0.7"
+http = "1"
