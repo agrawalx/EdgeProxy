@@ -1,4 +1,6 @@
+pub mod lb;
 pub mod routing;
+
 use axum::response::IntoResponse;
 use axum::{Router, routing::get};
 use http::StatusCode;
