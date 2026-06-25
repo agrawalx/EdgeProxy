@@ -4,7 +4,10 @@ use axum::{Router, routing::get};
 use http::StatusCode;
 pub fn entrypoint() -> Router {
     Router::new()
-        .route("/health", get(|| async { StatusCode::OK }))
+        .route(
+            "/health",
+            get(|| async { (StatusCode::OK, "Router is healthy!") }),
+        )
         .merge(routing::router())
         .fallback(not_found)
 }
