@@ -23,6 +23,7 @@ cache_store:
 
 observability:
   log_format: ${EDGEPROXY_LOG_FORMAT:-json}     # json | pretty
+  log_level: ${RUST_LOG:-info}                  # e.g. info,edgeproxy=debug,hyper=warn
 
 defaults:                                       # overridable per backend
   request_timeout_s: 30

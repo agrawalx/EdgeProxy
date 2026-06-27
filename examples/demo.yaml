@@ -1,0 +1,15 @@
+listen: "0.0.0.0:8080"
+
+observability:
+  log_format: pretty
+  log_level: "debug"
+  otlp_endpoint: "http://localhost:4317"
+
+backends:
+  - name: api
+    prefix: /api
+    kind:
+      type: http_passthrough
+      lb: round_robin
+      upstreams:
+        - http://127.0.0.1:4000

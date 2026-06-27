@@ -13,6 +13,7 @@ cache_store:
 
 observability:
   log_format: pretty            # json | pretty
+  log_level: ${RUST_LOG:-info}  # e.g. info,edgeproxy=debug,hyper=warn
   otlp_endpoint: null
 
 backends:

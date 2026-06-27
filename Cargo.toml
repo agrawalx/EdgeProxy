@@ -11,9 +11,17 @@ tower = { version = "0.4", features = ["util"] }
 hyper = { version = "1", features = ["http1"]}
 hyper-util = {version = "0.1", features = ["client-legacy", "http1", "tokio"]}
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["json"] }
+tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.10"
 clap = { version = "4", features = ["derive"] }
 thiserror = "2"
 dotenvy = "0.15"
+metrics = "0.23"
+metrics-exporter-prometheus = "0.15"
+uuid = { version = "1", features = ["v4"] }
+pin-project-lite = "0.2"
+opentelemetry = "0.27"
+opentelemetry_sdk = { version = "0.27", features = ["trace", "rt-tokio"] }
+opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic"] }
+tracing-opentelemetry = "0.28"

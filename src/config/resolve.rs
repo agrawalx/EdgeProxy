@@ -134,13 +134,23 @@ mod tests {
     use super::*;
 
     fn env(pairs: &[(&str, &str)]) -> Env {
-        Env::new(pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect())
+        Env::new(
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        )
     }
 
     #[test]
     fn substitutes_defined_var() {
         let mut errs = vec![];
-        let out = interpolate("listen: ${HOST}:8080", &env(&[("HOST", "1.2.3.4")]), "f", &mut errs);
+        let out = interpolate(
+            "listen: ${HOST}:8080",
+            &env(&[("HOST", "1.2.3.4")]),
+            "f",
+            &mut errs,
+        );
         assert_eq!(out, "listen: 1.2.3.4:8080");
         assert!(errs.is_empty());
     }

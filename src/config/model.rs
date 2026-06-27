@@ -66,6 +66,9 @@ pub struct CacheStoreConfig {
 #[serde(deny_unknown_fields)]
 pub struct ObservabilityConfig {
     pub log_format: Option<String>,
+    /// `EnvFilter` directive, e.g. "info" or "info,edgeproxy=debug,hyper=warn".
+    /// Written as `${RUST_LOG:-info}` in shipped configs so the env can override.
+    pub log_level: Option<String>,
     pub otlp_endpoint: Option<String>,
 }
 

@@ -48,8 +48,8 @@ pub fn load(paths: &[PathBuf]) -> Result<Blueprint, ConfigError> {
     let value = merged.ok_or(ConfigError::NoConfig)?;
 
     // Deserialize the merged document, then validate-by-conversion.
-    let config: Config =
-        serde_yaml_ng::from_value(value).map_err(|source| ConfigError::Parse { path: None, source })?;
+    let config: Config = serde_yaml_ng::from_value(value)
+        .map_err(|source| ConfigError::Parse { path: None, source })?;
     Blueprint::try_from(config).map_err(ConfigError::Validation)
 }
 
@@ -105,6 +105,14 @@ mod tests {
 
         // web backend exists only in override.yml
         assert!(bp.backends.iter().any(|b| b.name == "web"));
+    }
+
+    #[test]
+    fn log_level_resolves_from_env_override() {
+        // loglevel.yml uses ${EDGEPROXY_TEST_LOG:-info}; the value comes from
+        // fixtures/config/.env, proving the YAML-default + env-override path.
+        let bp = load(&[fixture("loglevel.yml")]).unwrap();
+        assert_eq!(bp.observability.log_level, "trace");
     }
 
     #[test]

@@ -23,6 +23,7 @@ const DEFAULT_CACHE_TTL_S: u64 = 30;
 const DEFAULT_CACHE_MAX_BODY_KB: u64 = 256;
 const DEFAULT_L1_MAX_ENTRIES: u64 = 100_000;
 const DEFAULT_LOG_FORMAT: LogFormat = LogFormat::Json;
+const DEFAULT_LOG_LEVEL: &str = "info";
 
 // ---- the runtime model ----------------------------------------------------
 
@@ -61,6 +62,7 @@ pub struct CacheStoreBlueprint {
 #[derive(Debug, Clone)]
 pub struct ObservabilityBlueprint {
     pub log_format: LogFormat,
+    pub log_level: String,
     pub otlp_endpoint: Option<String>,
 }
 
@@ -78,7 +80,10 @@ pub struct BackendBlueprint {
 
 #[derive(Debug, Clone)]
 pub enum BackendKindBlueprint {
-    HttpPassthrough { upstreams: Vec<String>, lb: LbStrategy },
+    HttpPassthrough {
+        upstreams: Vec<String>,
+        lb: LbStrategy,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +149,9 @@ impl TryFrom<Config> for Blueprint {
         let obs = c.observability.unwrap_or_default();
         let observability = ObservabilityBlueprint {
             log_format: parse_log_format(obs.log_format.as_deref(), &mut acc),
+            log_level: obs
+                .log_level
+                .unwrap_or_else(|| DEFAULT_LOG_LEVEL.to_string()),
             otlp_endpoint: obs.otlp_endpoint,
         };
 
@@ -158,7 +166,10 @@ impl TryFrom<Config> for Blueprint {
             if b.name.trim().is_empty() {
                 acc.push(format!("{path}.name"), "must not be empty");
             } else if !seen_names.insert(b.name.clone()) {
-                acc.push(format!("{path}.name"), format!("duplicate backend name '{}'", b.name));
+                acc.push(
+                    format!("{path}.name"),
+                    format!("duplicate backend name '{}'", b.name),
+                );
             }
 
             if !b.prefix.starts_with('/') {
@@ -168,13 +179,19 @@ impl TryFrom<Config> for Blueprint {
                 );
             }
             if !seen_prefixes.insert(b.prefix.clone()) {
-                acc.push(format!("{path}.prefix"), format!("duplicate prefix '{}'", b.prefix));
+                acc.push(
+                    format!("{path}.prefix"),
+                    format!("duplicate prefix '{}'", b.prefix),
+                );
             }
 
             let kind = match b.kind {
                 BackendKindConfig::HttpPassthrough { upstreams, lb } => {
                     if upstreams.is_empty() {
-                        acc.push(format!("{path}.kind.upstreams"), "must list at least one upstream");
+                        acc.push(
+                            format!("{path}.kind.upstreams"),
+                            "must list at least one upstream",
+                        );
                     }
                     for (j, u) in upstreams.iter().enumerate() {
                         if !valid_upstream(u) {
@@ -199,8 +216,12 @@ impl TryFrom<Config> for Blueprint {
                 DEFAULT_CONNECT_TIMEOUT_S,
             ));
             let retries = pick(b.retries, defaults.retries, DEFAULT_RETRIES);
-            let rate_limit =
-                resolve_rate_limit(defaults.rate_limit.as_ref(), b.rate_limit.as_ref(), &path, &mut acc);
+            let rate_limit = resolve_rate_limit(
+                defaults.rate_limit.as_ref(),
+                b.rate_limit.as_ref(),
+                &path,
+                &mut acc,
+            );
             let cache = resolve_cache(defaults.cache.as_ref(), b.cache.as_ref());
 
             backends.push(BackendBlueprint {
@@ -238,7 +259,10 @@ fn parse_listen(s: Option<&str>, acc: &mut Acc) -> SocketAddr {
     match raw.parse::<SocketAddr>() {
         Ok(addr) => addr,
         Err(_) => {
-            acc.push("listen", format!("'{raw}' is not a valid socket address (expected ip:port)"));
+            acc.push(
+                "listen",
+                format!("'{raw}' is not a valid socket address (expected ip:port)"),
+            );
             DEFAULT_LISTEN.parse().expect("default listen is valid")
         }
     }
@@ -274,8 +298,16 @@ fn resolve_rate_limit(
     path: &str,
     acc: &mut Acc,
 ) -> RateLimitBlueprint {
-    let rps = pick(route.and_then(|r| r.rps), defaults.and_then(|d| d.rps), DEFAULT_RPS);
-    let burst = pick(route.and_then(|r| r.burst), defaults.and_then(|d| d.burst), DEFAULT_BURST);
+    let rps = pick(
+        route.and_then(|r| r.rps),
+        defaults.and_then(|d| d.rps),
+        DEFAULT_RPS,
+    );
+    let burst = pick(
+        route.and_then(|r| r.burst),
+        defaults.and_then(|d| d.burst),
+        DEFAULT_BURST,
+    );
     let key_str = route
         .and_then(|r| r.key.clone())
         .or_else(|| defaults.and_then(|d| d.key.clone()));
@@ -332,6 +364,7 @@ mod tests {
 
         assert_eq!(bp.listen.to_string(), "0.0.0.0:8080");
         assert_eq!(bp.observability.log_format, LogFormat::Json);
+        assert_eq!(bp.observability.log_level, "info");
         assert_eq!(bp.cache_store.l1_max_entries, 100_000);
 
         let b = &bp.backends[0];
@@ -345,6 +378,13 @@ mod tests {
                 assert!(matches!(lb, LbStrategy::RoundRobin))
             }
         }
+    }
+
+    #[test]
+    fn log_level_passthrough() {
+        let cfg = config("observability:\n  log_level: \"debug,hyper=warn\"\nbackends: []\n");
+        let bp = Blueprint::try_from(cfg).unwrap();
+        assert_eq!(bp.observability.log_level, "debug,hyper=warn");
     }
 
     #[test]
@@ -368,10 +408,19 @@ mod tests {
         let paths: Vec<&str> = errs.iter().map(|e| e.path.as_str()).collect();
 
         assert!(paths.contains(&"listen"), "{paths:?}");
-        assert!(paths.iter().any(|p| *p == "backends[0].prefix"), "{paths:?}");
-        assert!(paths.iter().any(|p| *p == "backends[0].kind.upstreams"), "{paths:?}");
+        assert!(
+            paths.iter().any(|p| *p == "backends[0].prefix"),
+            "{paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| *p == "backends[0].kind.upstreams"),
+            "{paths:?}"
+        );
         assert!(paths.iter().any(|p| *p == "backends[1].name"), "{paths:?}");
-        assert!(paths.iter().any(|p| *p == "backends[1].kind.upstreams[0]"), "{paths:?}");
+        assert!(
+            paths.iter().any(|p| *p == "backends[1].kind.upstreams[0]"),
+            "{paths:?}"
+        );
         assert!(errs.len() >= 5, "expected >=5 errors, got {}", errs.len());
     }
 }
