@@ -1,0 +1,3 @@
+observability:
+  log_level: ${EDGEPROXY_TEST_LOG:-info}
+backends: []

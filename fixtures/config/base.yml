@@ -1,0 +1,13 @@
+listen: ${LISTEN:-0.0.0.0:8080}
+
+defaults:
+  rate_limit: { rps: 100, burst: 50 }
+  cache: { enabled: true, ttl_s: 30 }
+
+backends:
+  - name: api
+    prefix: /api
+    kind:
+      type: http_passthrough
+      lb: round_robin
+      upstreams: [http://127.0.0.1:3001]

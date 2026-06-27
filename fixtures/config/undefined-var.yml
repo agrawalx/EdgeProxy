@@ -1,0 +1,2 @@
+listen: ${EDGEPROXY_TEST_UNDEFINED_XYZ}
+backends: []
