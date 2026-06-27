@@ -10,3 +10,10 @@ http = "1"
 tower = { version = "0.4", features = ["util"] }
 hyper = { version = "1", features = ["http1"]}
 hyper-util = {version = "0.1", features = ["client-legacy", "http1", "tokio"]}
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml_ng = "0.10"
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"
+dotenvy = "0.15"

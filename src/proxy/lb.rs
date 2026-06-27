@@ -7,40 +7,46 @@ use std::{
     },
 };
 
-#[derive(Debug, Clone, Copy)]
+use serde::Deserialize;
+
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum LbStrategy {
+    #[default]
     RoundRobin,
     LeastConnections,
     IpHash,
 }
 
 /// Runtime state for a single backend's load balancer.
-/// Created once at startup, shared across all requests via Arc.
+/// Created once at startup, shared across all requests via `Arc`. Replica URLs
+/// are runtime-owned (`Arc<[String]>`) — not `&'static` — so they can come
+/// from a config file and so future control-plane state can sit alongside.
 pub enum LbState {
     RoundRobin {
-        replicas: &'static [&'static str],
-        counter: Arc<AtomicUsize>,
+        replicas: Arc<[String]>,
+        counter: AtomicUsize,
     },
     LeastConnections {
-        replicas: &'static [&'static str],
-        active: Arc<Vec<AtomicUsize>>,
+        replicas: Arc<[String]>,
+        active: Vec<AtomicUsize>,
     },
     IpHash {
-        replicas: &'static [&'static str],
+        replicas: Arc<[String]>,
     },
 }
 
 impl LbState {
-    pub fn new(strategy: LbStrategy, replicas: &'static [&'static str]) -> Arc<Self> {
+    pub fn new(strategy: LbStrategy, replicas: Arc<[String]>) -> Arc<Self> {
         Arc::new(match strategy {
             LbStrategy::RoundRobin => Self::RoundRobin {
                 replicas,
-                counter: Arc::new(AtomicUsize::new(0)),
+                counter: AtomicUsize::new(0),
             },
-            LbStrategy::LeastConnections => Self::LeastConnections {
-                replicas,
-                active: Arc::new((0..replicas.len()).map(|_| AtomicUsize::new(0)).collect()),
-            },
+            LbStrategy::LeastConnections => {
+                let active = (0..replicas.len()).map(|_| AtomicUsize::new(0)).collect();
+                Self::LeastConnections { replicas, active }
+            }
             LbStrategy::IpHash => Self::IpHash { replicas },
         })
     }
@@ -51,7 +57,7 @@ impl LbState {
         match self {
             Self::RoundRobin { replicas, counter } => {
                 let idx = counter.fetch_add(1, Ordering::Relaxed) % replicas.len();
-                (idx, replicas[idx])
+                (idx, &replicas[idx])
             }
 
             Self::LeastConnections { replicas, active } => {
@@ -61,7 +67,7 @@ impl LbState {
                     .min_by_key(|(_, c)| c.load(Ordering::Relaxed))
                     .map(|(i, _)| i)
                     .unwrap_or(0);
-                (idx, replicas[idx])
+                (idx, &replicas[idx])
             }
 
             Self::IpHash { replicas } => {
@@ -69,7 +75,7 @@ impl LbState {
                 let mut hasher = DefaultHasher::new();
                 ip.hash(&mut hasher);
                 let idx = hasher.finish() as usize % replicas.len();
-                (idx, replicas[idx])
+                (idx, &replicas[idx])
             }
         }
     }

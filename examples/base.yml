@@ -1,0 +1,53 @@
+# edgeProxy — example configuration (commit THIS file)
+#
+# Environment-agnostic: anything that varies per host or environment (listen
+# address, upstream pools, log level) is pulled from a sibling `.env` file
+# through the placeholders used in the values below.
+#
+#   1. cp examples/.env.example examples/.env   # then edit examples/.env
+#   2. edgeproxy -c examples/base.yml --check-config
+#
+# `.env` is auto-loaded from the directory of the FIRST -c file and its values
+# OVERRIDE the process environment (a synced config dir then behaves the same
+# on every machine). The ":-" form supplies a fallback used when the variable
+# is set in neither `.env` nor the environment.
+#
+# NOTE: interpolation runs over the WHOLE file (comments included) BEFORE YAML
+# parsing, so a literal `$` anywhere must be escaped as `$$`.
+
+listen: ${EDGEPROXY_LISTEN:-0.0.0.0:8080}
+
+cache_store:
+  l1_max_entries: 100000
+  l2_path: ${EDGEPROXY_CACHE_DIR:-/var/lib/edgeproxy/cache}   # RocksDB L2 (F5)
+
+observability:
+  log_format: ${EDGEPROXY_LOG_FORMAT:-json}     # json | pretty
+
+defaults:                                       # overridable per backend
+  request_timeout_s: 30
+  connect_timeout_s: 5
+  retries: 2
+  rate_limit: { rps: ${EDGEPROXY_DEFAULT_RPS:-100}, burst: 50, key: ip }
+  cache: { enabled: false, ttl_s: 30, max_body_kb: 256 }
+
+backends:
+  - name: api
+    prefix: /api
+    kind:
+      type: http_passthrough
+      lb: round_robin
+      upstreams:
+        - ${API_UPSTREAM_1:-http://127.0.0.1:3001}
+        - ${API_UPSTREAM_2:-http://127.0.0.1:3002}
+    cache: { enabled: true, ttl_s: 60 }         # per-route override
+
+  - name: web
+    prefix: /
+    kind:
+      type: http_passthrough
+      lb: least_connections
+      upstreams:
+        - ${WEB_UPSTREAM:-http://127.0.0.1:8080}
+
+# auth:  <reserved — parsed-but-ignored until the auth phase>

@@ -1,1 +1,13 @@
 /target
+
+# Real secret/per-host env files — never commit these.
+# (Templates and the examples/ working sample are committed.)
+.env
+!examples/.env
+!**/.env.example
+
+# Local-only config overrides
+*.local.yaml
+*.local.yml
+
+.DS_Store

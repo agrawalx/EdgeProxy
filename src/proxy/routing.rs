@@ -1,10 +1,7 @@
-use crate::config::BACKENDS;
 use crate::proxy::lb::LbState;
-use axum::Router;
 use axum::body::Body;
 use axum::extract::{ConnectInfo, Request};
 use axum::response::{IntoResponse, Response};
-use axum::routing::any;
 use http::status::StatusCode;
 use http::{HeaderMap, HeaderName, HeaderValue, Uri};
 use hyper_util::client::legacy::Client;
@@ -14,7 +11,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tower::{Layer, Service};
-
 // ---------------------------------------------------------------------------
 // Hop-by-hop header catalogue (RFC 7230 §6.1)
 // ---------------------------------------------------------------------------
@@ -135,30 +131,19 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Router
+// Proxy client
 // ---------------------------------------------------------------------------
-type ProxyClient = Client<HttpConnector, Body>;
-pub fn router() -> Router {
-    let client: ProxyClient = Client::builder(TokioExecutor::new())
-        .pool_max_idle_per_host(32)
-        .build(HttpConnector::new());
-    let client = Arc::new(client);
-    BACKENDS
-        .iter()
-        .fold(Router::new(), |r, &(_name, prefix, strategy, replicas)| {
-            let lb = LbState::new(strategy, replicas);
-            let client = Arc::clone(&client);
-            r.route(
-                &format!("{prefix}/*path"),
-                any(
-                    move |ConnectInfo(peer): ConnectInfo<SocketAddr>, req: Request| async move {
-                        proxy_request(ConnectInfo(peer), req, lb, client).await
-                    },
-                ),
-            )
-        })
-        .layer(StripHopByHopLayer)
+pub type ProxyClient = Client<HttpConnector, Body>;
+
+/// Build the shared upstream HTTP client (pooled, reused across all backends).
+pub fn build_proxy_client() -> Arc<ProxyClient> {
+    Arc::new(
+        Client::builder(TokioExecutor::new())
+            .pool_max_idle_per_host(32)
+            .build(HttpConnector::new()),
+    )
 }
+
 struct ConnectionGuard<'a> {
     lb: &'a LbState,
     idx: usize,
@@ -169,7 +154,7 @@ impl Drop for ConnectionGuard<'_> {
         self.lb.decrement(self.idx);
     }
 }
-async fn proxy_request(
+pub async fn proxy_request(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     req: Request,
     lb: Arc<LbState>,
@@ -205,9 +190,10 @@ async fn proxy_request(
         .map(|pq| pq.as_str())
         .unwrap_or("/");
     parts.uri = match format!("{upstream_base}{path_and_query}").parse::<Uri>() {
-        Ok(uri) => uri,
+        Ok(uri) => {uri}
         Err(_) => return StatusCode::BAD_GATEWAY.into_response(),
     };
+
 
     let upstream_req = Request::from_parts(parts, body);
     match client.request(upstream_req).await {
@@ -228,7 +214,14 @@ async fn proxy_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{
+        BackendBlueprint, BackendKindBlueprint, CacheBlueprint, RateLimitBlueprint, RateLimitKey,
+    };
+    use crate::proxy::backend::Backend;
+    use crate::proxy::lb::LbStrategy;
+    use crate::proxy::{AppState, entrypoint};
     use axum::body::Body;
+    use std::time::Duration;
     use tower::ServiceExt; // for .oneshot()
 
     // --- unit tests: strip_hop_by_hop in isolation ---
@@ -309,7 +302,32 @@ mod tests {
 
     #[tokio::test]
     async fn middleware_strips_headers_before_handler() {
-        let app = router();
+        let bp = BackendBlueprint {
+            name: "api-service".into(),
+            prefix: "/api".into(),
+            kind: BackendKindBlueprint::HttpPassthrough {
+                upstreams: vec!["http://127.0.0.1:3001".into()],
+                lb: LbStrategy::RoundRobin,
+            },
+            request_timeout: Duration::from_secs(30),
+            connect_timeout: Duration::from_secs(5),
+            retries: 2,
+            rate_limit: RateLimitBlueprint {
+                rps: 100,
+                burst: 50,
+                key: RateLimitKey::Ip,
+            },
+            cache: CacheBlueprint {
+                enabled: false,
+                ttl: Duration::from_secs(30),
+                max_body_bytes: 262_144,
+            },
+        };
+        let state = AppState {
+            client: build_proxy_client(),
+            registry: vec![Backend::from_blueprint(&bp)],
+        };
+        let app = entrypoint(state);
 
         let mut req = Request::builder()
             .uri("/api/test")
